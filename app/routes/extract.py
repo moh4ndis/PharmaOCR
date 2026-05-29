@@ -1,4 +1,4 @@
-"""REST endpoints for single-image and batch OCR extraction."""
+"""REST endpoint for single-image OCR extraction."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import numpy as np
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
-from app.schemas.response_schema import BatchExtractionResponse, ExtractionResult
+from app.schemas.response_schema import ExtractionResult
 from app.services.ocr_service import OCRService, OCRServiceError
 from app.services.parser_service import ParserService
 from app.services.preprocess_service import PreprocessService
@@ -21,9 +21,6 @@ router = APIRouter(prefix="/extract", tags=["extraction"])
 preprocess_service = PreprocessService()
 ocr_service = OCRService()
 parser_service = ParserService()
-
-MAX_BATCH_FILES = 20
-
 
 def _process_image(image: np.ndarray, filename: str) -> ExtractionResult:
     """Run preprocessing, OCR, parsing, and response assembly for one image."""
@@ -71,26 +68,3 @@ async def _read_and_process_upload(file: UploadFile) -> ExtractionResult:
 async def extract_single(file: UploadFile = File(...)) -> ExtractionResult:
     """Extract package fields from a single uploaded image."""
     return await _read_and_process_upload(file)
-
-
-@router.post("/batch", response_model=BatchExtractionResponse)
-async def extract_batch(files: list[UploadFile] = File(...)) -> BatchExtractionResponse:
-    """Extract package fields from multiple uploaded images."""
-    if not files:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one image file is required.",
-        )
-
-    if len(files) > MAX_BATCH_FILES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Batch uploads are limited to {MAX_BATCH_FILES} files.",
-        )
-
-    results: list[ExtractionResult] = []
-    for file in files:
-        results.append(await _read_and_process_upload(file))
-
-    return BatchExtractionResponse(results=results)
-

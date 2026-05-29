@@ -19,10 +19,3 @@ class ExtractionResult(BaseModel):
         le=1.0,
         description="Average OCR confidence across recognized text lines.",
     )
-
-
-class BatchExtractionResponse(BaseModel):
-    """Batch endpoint response containing one result per uploaded image."""
-
-    results: list[ExtractionResult]
-

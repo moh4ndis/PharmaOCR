@@ -310,47 +310,6 @@ Example response:
 }
 ```
 
-### Batch Images
-
-Endpoint:
-
-```text
-POST /extract/batch
-```
-
-Request:
-
-```bash
-curl -X POST "http://localhost:8000/extract/batch" \
-  -F "files=@drug1.jpg" \
-  -F "files=@drug2.jpg"
-```
-
-Example response:
-
-```json
-{
-  "results": [
-    {
-      "filename": "drug1.jpg",
-      "lot_number": "RN620",
-      "expiration_date": "2026-10",
-      "manufacture_date": null,
-      "raw_text": ["LOT: RN620", "EXP: 10 2026"],
-      "confidence": 0.93
-    },
-    {
-      "filename": "drug2.jpg",
-      "lot_number": "K8NGWAHVKJ",
-      "expiration_date": "2025-08",
-      "manufacture_date": null,
-      "raw_text": ["BATCH K8NGWAHVKJ", "EXP 08-2025"],
-      "confidence": 0.89
-    }
-  ]
-}
-```
-
 ## Project Structure
 
 ```text
