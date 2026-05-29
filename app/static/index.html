@@ -310,6 +310,23 @@
         white-space: nowrap;
       }
 
+      .review-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 38px;
+        border-radius: 8px;
+        background: #fff5df;
+        color: var(--warn);
+        font-weight: 700;
+        padding: 0 12px;
+        white-space: nowrap;
+      }
+
+      .review-pill.reviewed {
+        background: #eaf8f1;
+        color: var(--ok);
+      }
+
       .placeholder {
         display: grid;
         min-height: 238px;
@@ -391,6 +408,25 @@
         border: 1px solid var(--line);
         border-radius: 8px;
         padding: 12px 14px;
+      }
+
+      .review-strip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfcff;
+        padding: 12px 14px;
+      }
+
+      .review-summary {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 13px;
       }
 
       .meter {
@@ -635,7 +671,7 @@
           <div class="mark" aria-hidden="true">Rx</div>
           <div>
             <h1>Pharma OCR Workbench</h1>
-            <p class="subtitle">Standard PaddleOCR extraction API</p>
+            <p class="subtitle">PaddleOCR extraction with human review</p>
           </div>
         </div>
         <div class="actions">
@@ -703,6 +739,7 @@
             <div class="panel-title">
               <span class="tab-label">Extraction Result</span>
               <span class="model-pill">PaddleOCR</span>
+              <span class="review-pill" id="reviewPill">Needs review</span>
             </div>
             <div class="result-toolbar">
               <button class="button" id="copyButton" type="button" disabled>Copy JSON</button>
@@ -749,6 +786,16 @@
                 <div class="meter" aria-hidden="true"><span id="confidenceBar"></span></div>
               </div>
 
+              <div class="review-strip">
+                <div>
+                  <strong>Human review</strong>
+                  <span class="review-summary" id="reviewSummary">Needs review</span>
+                </div>
+                <button class="button" id="markReviewedButton" type="button" disabled>
+                  Mark reviewed
+                </button>
+              </div>
+
               <div class="section">
                 <div class="section-head">
                   <h2>Detected Text</h2>
@@ -785,6 +832,9 @@
       const autoScanButton = document.querySelector("#autoScanButton");
       const stopCameraButton = document.querySelector("#stopCameraButton");
       const copyButton = document.querySelector("#copyButton");
+      const reviewPill = document.querySelector("#reviewPill");
+      const reviewSummary = document.querySelector("#reviewSummary");
+      const markReviewedButton = document.querySelector("#markReviewedButton");
       const statusBox = document.querySelector("#status");
       const placeholder = document.querySelector("#resultPlaceholder");
       const resultContent = document.querySelector("#resultContent");
@@ -800,6 +850,7 @@
       let selectedFile = null;
       let previewUrl = null;
       let latestResult = null;
+      let originalResult = null;
       let isExtracting = false;
       let cameraStream = null;
       let autoScanTimer = null;
@@ -808,6 +859,84 @@
         lot_number: lotNumber,
         expiration_date: expirationDate,
         manufacture_date: manufactureDate,
+      };
+
+      const cloneResult = (result) => JSON.parse(JSON.stringify(result || {}));
+
+      const ensureHumanReview = () => {
+        if (!latestResult) return;
+        if (!latestResult.human_review) {
+          latestResult.human_review = {
+            status: "needs_review",
+            corrected_fields: [],
+            reviewed_at: null,
+          };
+        }
+        if (!Array.isArray(latestResult.human_review.corrected_fields)) {
+          latestResult.human_review.corrected_fields = [];
+        }
+      };
+
+      const valuesDiffer = (left, right) =>
+        JSON.stringify(left ?? null) !== JSON.stringify(right ?? null);
+
+      const getCorrectedFields = () => {
+        if (!latestResult || !originalResult) return [];
+
+        const changed = ["lot_number", "expiration_date", "manufacture_date"].filter((field) =>
+          valuesDiffer(latestResult[field], originalResult[field]),
+        );
+
+        if (valuesDiffer(latestResult.raw_text || [], originalResult.raw_text || [])) {
+          changed.push("raw_text");
+        }
+
+        return changed;
+      };
+
+      const updateReviewUi = () => {
+        if (!latestResult) {
+          reviewPill.textContent = "Needs review";
+          reviewPill.classList.remove("reviewed");
+          reviewSummary.textContent = "Needs review";
+          markReviewedButton.disabled = true;
+          markReviewedButton.textContent = "Mark reviewed";
+          return;
+        }
+
+        ensureHumanReview();
+        const review = latestResult.human_review;
+        const isReviewed = review.status === "reviewed";
+        const correctionCount = review.corrected_fields.length;
+        const correctionText = `${correctionCount} correction${correctionCount === 1 ? "" : "s"}`;
+
+        reviewPill.textContent = isReviewed ? "Reviewed" : "Needs review";
+        reviewPill.classList.toggle("reviewed", isReviewed);
+        reviewSummary.textContent = isReviewed
+          ? `Reviewed - ${correctionText}`
+          : `Needs review - ${correctionText}`;
+        markReviewedButton.disabled = false;
+        markReviewedButton.textContent = isReviewed ? "Reviewed" : "Mark reviewed";
+      };
+
+      const syncJsonOutput = () => {
+        if (!latestResult) {
+          jsonOutput.textContent = "{}";
+          updateReviewUi();
+          return;
+        }
+
+        ensureHumanReview();
+        latestResult.human_review.corrected_fields = getCorrectedFields();
+        updateReviewUi();
+        jsonOutput.textContent = JSON.stringify(latestResult, null, 2);
+      };
+
+      const markNeedsReview = () => {
+        if (!latestResult) return;
+        ensureHumanReview();
+        latestResult.human_review.status = "needs_review";
+        latestResult.human_review.reviewed_at = null;
       };
 
       const formatBytes = (bytes) => {
@@ -850,12 +979,15 @@
         return withoutLabel.replace(/[^A-Z0-9]/gi, "").toUpperCase();
       };
 
-      const syncResultFromFields = () => {
+      const syncResultFromFields = ({ markDirty = true } = {}) => {
         if (!latestResult) return;
         latestResult.lot_number = fieldInputs.lot_number.value.trim() || null;
         latestResult.expiration_date = fieldInputs.expiration_date.value.trim() || null;
         latestResult.manufacture_date = fieldInputs.manufacture_date.value.trim() || null;
-        jsonOutput.textContent = JSON.stringify(latestResult, null, 2);
+        if (markDirty) {
+          markNeedsReview();
+        }
+        syncJsonOutput();
       };
 
       const normalizeDateField = (field) => {
@@ -883,8 +1015,9 @@
 
       const updateRawLine = (index, value) => {
         if (!latestResult) return;
+        markNeedsReview();
         latestResult.raw_text[index] = value;
-        jsonOutput.textContent = JSON.stringify(latestResult, null, 2);
+        syncJsonOutput();
       };
 
       const createAssignButton = (label, field, input) => {
@@ -925,21 +1058,22 @@
       };
 
       const renderResult = (result) => {
-        latestResult = result;
+        latestResult = cloneResult(result);
+        originalResult = cloneResult(result);
         placeholder.style.display = "none";
         resultContent.classList.add("visible");
         copyButton.disabled = false;
 
-        setField(lotNumber, result.lot_number);
-        setField(expirationDate, result.expiration_date);
-        setField(manufactureDate, result.manufacture_date);
+        setField(lotNumber, latestResult.lot_number);
+        setField(expirationDate, latestResult.expiration_date);
+        setField(manufactureDate, latestResult.manufacture_date);
 
-        const confidence = typeof result.confidence === "number" ? result.confidence : 0;
+        const confidence = typeof latestResult.confidence === "number" ? latestResult.confidence : 0;
         confidenceText.textContent = `Confidence ${(confidence * 100).toFixed(1)}%`;
         confidenceBar.style.width = `${Math.max(0, Math.min(confidence, 1)) * 100}%`;
 
         rawText.replaceChildren();
-        const lines = Array.isArray(result.raw_text) ? result.raw_text : [];
+        const lines = Array.isArray(latestResult.raw_text) ? latestResult.raw_text : [];
         if (lines.length === 0) {
           const item = document.createElement("li");
           item.className = "raw-line";
@@ -951,20 +1085,21 @@
           });
         }
 
-        jsonOutput.textContent = JSON.stringify(result, null, 2);
+        syncJsonOutput();
       };
 
       const clearResult = () => {
         latestResult = null;
+        originalResult = null;
         copyButton.disabled = true;
         placeholder.style.display = "grid";
         resultContent.classList.remove("visible");
         rawText.replaceChildren();
-        jsonOutput.textContent = "{}";
         confidenceBar.style.width = "0%";
         Object.values(fieldInputs).forEach((input) => {
           input.value = "";
         });
+        syncJsonOutput();
       };
 
       const stopAutoScan = () => {
@@ -1182,9 +1317,13 @@
       stopCameraButton.addEventListener("click", stopCamera);
       addRawLineButton.addEventListener("click", () => {
         if (!latestResult) return;
+        markNeedsReview();
+        if (!Array.isArray(latestResult.raw_text)) {
+          latestResult.raw_text = [];
+        }
         latestResult.raw_text.push("");
         rawText.appendChild(renderRawLine("", latestResult.raw_text.length - 1));
-        jsonOutput.textContent = JSON.stringify(latestResult, null, 2);
+        syncJsonOutput();
       });
       Object.entries(fieldInputs).forEach(([field, input]) => {
         input.addEventListener("input", syncResultFromFields);
@@ -1192,9 +1331,18 @@
           input.addEventListener("blur", () => normalizeDateField(field));
         }
       });
+      markReviewedButton.addEventListener("click", () => {
+        if (!latestResult) return;
+        syncResultFromFields({ markDirty: false });
+        ensureHumanReview();
+        latestResult.human_review.status = "reviewed";
+        latestResult.human_review.reviewed_at = new Date().toISOString();
+        syncJsonOutput();
+        setStatus("Human review marked complete.", "ok");
+      });
       copyButton.addEventListener("click", async () => {
         if (!latestResult) return;
-        syncResultFromFields();
+        syncResultFromFields({ markDirty: false });
         await navigator.clipboard.writeText(JSON.stringify(latestResult, null, 2));
         setStatus("JSON copied.", "ok");
       });
