@@ -12,7 +12,7 @@ The API extracts:
 
 ## Quick Explanation
 
-This project is a local OCR backend for medicine package images. A user uploads a package photo, the app reads the printed text, extracts important fields, and returns JSON.
+This project is a local OCR backend for medicine package images. A user uploads a package photo or scans one with the laptop camera, the app reads the printed text, extracts important fields, and returns JSON.
 
 It does not use an LLM or paid cloud OCR. The OCR model is PaddleOCR, and the field extraction is done with simple parser rules.
 
@@ -31,7 +31,7 @@ It does not use an LLM or paid cloud OCR. The OCR model is PaddleOCR, and the fi
 ## Model Structure
 
 ```text
-Image upload
+Image upload or camera frame
    ↓
 OpenCV preprocessing
    ↓
@@ -55,6 +55,7 @@ In simple terms:
 3. **Parser rules** search that text for labels like `LOT`, `EXP`, `PER`, `MFG`, `DOM`, and `FAB`.
 4. **Date normalization** converts values such as `10/27` into `2027-10`.
 5. **Human-in-the-loop UI** lets the user correct OCR or parser mistakes before copying JSON.
+6. **Camera scan mode** captures a browser camera frame and sends it to the same OCR endpoint.
 
 Docker uses these lightweight PaddleOCR models:
 
@@ -214,7 +215,7 @@ Open:
 http://localhost:8000/
 ```
 
-The web UI keeps the uploaded package image visible on the left and shows parsed fields, detected OCR text, and JSON output on the right. Swagger remains available at:
+The web UI keeps the uploaded package image or live camera preview visible on the left and shows parsed fields, detected OCR text, and JSON output on the right. Swagger remains available at:
 
 ```text
 http://localhost:8000/docs
@@ -341,6 +342,8 @@ Detailed flow:
 
 The built-in web UI uses the same `/extract/single` endpoint as API clients. After the user chooses an image, the browser keeps a local preview visible on the left, sends the file to the backend, and renders the parsed fields, OCR text, confidence, and JSON on the right.
 
+For laptop camera scanning, the browser uses `getUserMedia` on `localhost`, captures a video frame into a JPEG image, and sends that image to `/extract/single`. The optional auto-scan mode repeats this snapshot process every few seconds; it is not a continuous video stream to the backend.
+
 The UI also supports human-in-the-loop correction. Parsed fields are editable, detected OCR text lines are editable, and each detected line has quick assignment buttons for `LOT`, `EXP`, and `MFG`. For example, if OCR detects `09-2025` but the parser does not assign it as the manufacture date, click `MFG` on that detected text line and the corrected JSON updates immediately.
 
 The API does not permanently store uploaded images in the MVP flow. The `app/uploads` directory is present for future extension points such as validation queues or audit workflows.
@@ -417,8 +420,8 @@ The API returns `null` for fields it cannot confidently parse from the OCR text.
 
 ## Future Improvements
 
-- webcam capture support
 - mobile camera upload flow
+- smarter continuous scan mode with duplicate-result filtering
 - human-in-the-loop validation UI
 - confidence-based review queue
 - broader deterministic parser coverage
