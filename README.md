@@ -10,6 +10,57 @@ The API extracts:
 - raw OCR text
 - average OCR confidence
 
+## Quick Explanation
+
+This project is a local OCR backend for medicine package images. A user uploads a package photo, the app reads the printed text, extracts important fields, and returns JSON.
+
+It does not use an LLM or paid cloud OCR. The OCR model is PaddleOCR, and the field extraction is done with simple parser rules.
+
+## Tech Stack Used
+
+- **Python 3.11**: main backend language
+- **FastAPI**: REST API and web app server
+- **PaddleOCR**: open-source OCR model for text detection and recognition
+- **PaddlePaddle CPU**: inference engine used by PaddleOCR
+- **OpenCV**: image preprocessing before OCR
+- **Pydantic**: structured API response schemas
+- **Uvicorn**: ASGI server for FastAPI
+- **uv**: Python dependency manager
+- **Docker Compose**: repeatable local runtime
+
+## Model Structure
+
+```text
+Image upload
+   ↓
+OpenCV preprocessing
+   ↓
+PaddleOCR text detection + recognition
+   ↓
+Raw detected text lines
+   ↓
+Regex parser
+   ↓
+lot_number / expiration_date / manufacture_date
+   ↓
+Human correction UI
+   ↓
+Final JSON output
+```
+
+In simple terms:
+
+1. **OpenCV** cleans the image so text is easier to read.
+2. **PaddleOCR** finds and reads text from the image.
+3. **Parser rules** search that text for labels like `LOT`, `EXP`, `PER`, `MFG`, `DOM`, and `FAB`.
+4. **Date normalization** converts values such as `10/27` into `2027-10`.
+5. **Human-in-the-loop UI** lets the user correct OCR or parser mistakes before copying JSON.
+
+Docker uses these lightweight PaddleOCR models:
+
+- `PP-OCRv5_mobile_det`: detects text areas in the image
+- `en_PP-OCRv5_mobile_rec`: recognizes English text from detected areas
+
 ## Architecture
 
 ```text
@@ -289,6 +340,8 @@ Detailed flow:
 10. The API returns structured JSON with parsed fields, raw OCR text, and confidence.
 
 The built-in web UI uses the same `/extract/single` endpoint as API clients. After the user chooses an image, the browser keeps a local preview visible on the left, sends the file to the backend, and renders the parsed fields, OCR text, confidence, and JSON on the right.
+
+The UI also supports human-in-the-loop correction. Parsed fields are editable, detected OCR text lines are editable, and each detected line has quick assignment buttons for `LOT`, `EXP`, and `MFG`. For example, if OCR detects `09-2025` but the parser does not assign it as the manufacture date, click `MFG` on that detected text line and the corrected JSON updates immediately.
 
 The API does not permanently store uploaded images in the MVP flow. The `app/uploads` directory is present for future extension points such as validation queues or audit workflows.
 

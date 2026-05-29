@@ -321,9 +321,25 @@
         overflow-wrap: anywhere;
       }
 
-      .field-value.missing {
+      .field-input {
+        width: 100%;
+        min-height: 40px;
+        border: 0;
+        border-bottom: 1px solid transparent;
+        background: transparent;
+        color: var(--text);
+        font-size: 22px;
+        font-weight: 780;
+        outline: 0;
+        padding: 0;
+      }
+
+      .field-input:focus {
+        border-bottom-color: var(--primary);
+      }
+
+      .field-input::placeholder {
         color: #9aa4b7;
-        font-weight: 650;
       }
 
       .confidence {
@@ -382,9 +398,9 @@
 
       .raw-line {
         display: grid;
-        grid-template-columns: 34px minmax(0, 1fr);
+        grid-template-columns: 34px minmax(0, 1fr) auto;
         gap: 10px;
-        align-items: start;
+        align-items: center;
         border: 1px solid var(--line);
         border-radius: 8px;
         background: #ffffff;
@@ -394,6 +410,45 @@
       .line-index {
         color: var(--muted);
         font-variant-numeric: tabular-nums;
+      }
+
+      .raw-text-input {
+        min-width: 0;
+        width: 100%;
+        border: 0;
+        border-bottom: 1px solid transparent;
+        background: transparent;
+        color: var(--text);
+        outline: 0;
+        padding: 4px 0;
+      }
+
+      .raw-text-input:focus {
+        border-bottom-color: var(--primary);
+      }
+
+      .assign-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      .assign-button {
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #f9fbff;
+        color: #324bb8;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 800;
+        padding: 4px 8px;
+      }
+
+      .assign-button:hover {
+        border-color: #9fabe3;
+        background: #edf2ff;
       }
 
       pre {
@@ -468,6 +523,15 @@
       @media (max-width: 980px) {
         .field-grid {
           grid-template-columns: 1fr;
+        }
+
+        .raw-line {
+          grid-template-columns: 34px minmax(0, 1fr);
+        }
+
+        .assign-actions {
+          grid-column: 2;
+          justify-content: flex-start;
         }
 
         .result-toolbar {
@@ -590,15 +654,30 @@
               <div class="field-grid">
                 <article class="field">
                   <p class="field-label">Lot number</p>
-                  <p class="field-value" id="lotNumber">-</p>
+                  <input
+                    class="field-input"
+                    id="lotNumber"
+                    aria-label="Lot number"
+                    placeholder="Missing"
+                  />
                 </article>
                 <article class="field">
                   <p class="field-label">Expiration date</p>
-                  <p class="field-value" id="expirationDate">-</p>
+                  <input
+                    class="field-input"
+                    id="expirationDate"
+                    aria-label="Expiration date"
+                    placeholder="Missing"
+                  />
                 </article>
                 <article class="field">
                   <p class="field-label">Manufacture date</p>
-                  <p class="field-value" id="manufactureDate">-</p>
+                  <input
+                    class="field-input"
+                    id="manufactureDate"
+                    aria-label="Manufacture date"
+                    placeholder="Missing"
+                  />
                 </article>
               </div>
 
@@ -610,6 +689,7 @@
               <div class="section">
                 <div class="section-head">
                   <h2>Detected Text</h2>
+                  <button class="button" id="addRawLineButton" type="button">Add line</button>
                 </div>
                 <ol class="raw-list" id="rawText"></ol>
               </div>
@@ -645,11 +725,18 @@
       const confidenceBar = document.querySelector("#confidenceBar");
       const rawText = document.querySelector("#rawText");
       const jsonOutput = document.querySelector("#jsonOutput");
+      const addRawLineButton = document.querySelector("#addRawLineButton");
 
       let selectedFile = null;
       let previewUrl = null;
       let latestResult = null;
       let isExtracting = false;
+
+      const fieldInputs = {
+        lot_number: lotNumber,
+        expiration_date: expirationDate,
+        manufacture_date: manufactureDate,
+      };
 
       const formatBytes = (bytes) => {
         if (!bytes) return "0 B";
@@ -665,8 +752,104 @@
       };
 
       const setField = (element, value) => {
-        element.textContent = value || "Missing";
-        element.classList.toggle("missing", !value);
+        element.value = value || "";
+      };
+
+      const normalizeDate = (value) => {
+        const normalized = value.toUpperCase().replaceAll("O", "0");
+        const monthYear = normalized.match(/(^|\D)(0?[1-9]|1[0-2])\s*[\/\-. ]\s*(20\d{2}|\d{2})(?!\d)/);
+        if (monthYear) {
+          const month = String(Number(monthYear[2])).padStart(2, "0");
+          const year = monthYear[3].length === 2 ? `20${monthYear[3]}` : monthYear[3];
+          return `${year}-${month}`;
+        }
+
+        const yearMonth = normalized.match(/(^|\D)(20\d{2})\s*[\/\-. ]\s*(0?[1-9]|1[0-2])(?!\d)/);
+        if (yearMonth) {
+          const month = String(Number(yearMonth[3])).padStart(2, "0");
+          return `${yearMonth[2]}-${month}`;
+        }
+
+        return "";
+      };
+
+      const normalizeLot = (value) => {
+        const withoutLabel = value.replace(/\b(?:LOT|BATCH|EXP|PER|DOM|FAB|MFG|MFD)\b\s*[:#-]?/gi, "");
+        return withoutLabel.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+      };
+
+      const syncResultFromFields = () => {
+        if (!latestResult) return;
+        latestResult.lot_number = fieldInputs.lot_number.value.trim() || null;
+        latestResult.expiration_date = fieldInputs.expiration_date.value.trim() || null;
+        latestResult.manufacture_date = fieldInputs.manufacture_date.value.trim() || null;
+        jsonOutput.textContent = JSON.stringify(latestResult, null, 2);
+      };
+
+      const normalizeDateField = (field) => {
+        const normalized = normalizeDate(fieldInputs[field].value);
+        if (normalized) {
+          fieldInputs[field].value = normalized;
+          syncResultFromFields();
+        }
+      };
+
+      const assignDetectedText = (field, value) => {
+        if (!latestResult) return;
+
+        let normalized = value.trim();
+        if (field === "lot_number") {
+          normalized = normalizeLot(value) || normalized;
+        } else {
+          normalized = normalizeDate(value) || normalized;
+        }
+
+        fieldInputs[field].value = normalized;
+        syncResultFromFields();
+        setStatus("Correction applied.", "ok");
+      };
+
+      const updateRawLine = (index, value) => {
+        if (!latestResult) return;
+        latestResult.raw_text[index] = value;
+        jsonOutput.textContent = JSON.stringify(latestResult, null, 2);
+      };
+
+      const createAssignButton = (label, field, input) => {
+        const button = document.createElement("button");
+        button.className = "assign-button";
+        button.type = "button";
+        button.textContent = label;
+        button.addEventListener("click", () => {
+          assignDetectedText(field, input.value);
+        });
+        return button;
+      };
+
+      const renderRawLine = (line, index) => {
+        const item = document.createElement("li");
+        item.className = "raw-line";
+
+        const number = document.createElement("span");
+        number.className = "line-index";
+        number.textContent = String(index + 1).padStart(2, "0");
+
+        const text = document.createElement("input");
+        text.className = "raw-text-input";
+        text.value = line;
+        text.setAttribute("aria-label", `Detected text line ${index + 1}`);
+        text.addEventListener("input", () => updateRawLine(index, text.value));
+
+        const actions = document.createElement("div");
+        actions.className = "assign-actions";
+        actions.append(
+          createAssignButton("LOT", "lot_number", text),
+          createAssignButton("EXP", "expiration_date", text),
+          createAssignButton("MFG", "manufacture_date", text),
+        );
+
+        item.append(number, text, actions);
+        return item;
       };
 
       const renderResult = (result) => {
@@ -692,15 +875,7 @@
           rawText.appendChild(item);
         } else {
           lines.forEach((line, index) => {
-            const item = document.createElement("li");
-            item.className = "raw-line";
-            const number = document.createElement("span");
-            number.className = "line-index";
-            number.textContent = String(index + 1).padStart(2, "0");
-            const text = document.createElement("span");
-            text.textContent = line;
-            item.append(number, text);
-            rawText.appendChild(item);
+            rawText.appendChild(renderRawLine(line, index));
           });
         }
 
@@ -715,6 +890,9 @@
         rawText.replaceChildren();
         jsonOutput.textContent = "{}";
         confidenceBar.style.width = "0%";
+        Object.values(fieldInputs).forEach((input) => {
+          input.value = "";
+        });
       };
 
       const selectFile = (file) => {
@@ -814,8 +992,21 @@
 
       extractButton.addEventListener("click", extract);
       resetButton.addEventListener("click", reset);
+      addRawLineButton.addEventListener("click", () => {
+        if (!latestResult) return;
+        latestResult.raw_text.push("");
+        rawText.appendChild(renderRawLine("", latestResult.raw_text.length - 1));
+        jsonOutput.textContent = JSON.stringify(latestResult, null, 2);
+      });
+      Object.entries(fieldInputs).forEach(([field, input]) => {
+        input.addEventListener("input", syncResultFromFields);
+        if (field !== "lot_number") {
+          input.addEventListener("blur", () => normalizeDateField(field));
+        }
+      });
       copyButton.addEventListener("click", async () => {
         if (!latestResult) return;
+        syncResultFromFields();
         await navigator.clipboard.writeText(JSON.stringify(latestResult, null, 2));
         setStatus("JSON copied.", "ok");
       });
